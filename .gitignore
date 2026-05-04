@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+data/raw/
+data/cleaned/
+data/database/
+*.db
+*.sqlite
+*.pbix
+.ipynb_checkpoints/
+*.log
