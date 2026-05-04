@@ -54,14 +54,25 @@ docs/         ← data dictionary, methodology
 - 2020 season has 162 games (COVID-shortened season)
 - `complete` field = 100 means final result, lower values = live/incomplete
 
-### AFL Tables Scraper — PENDING
+### AFL Tables Scraper — COMPLETE
 **Script:** `scrapers/afltables_scraper.py`
-**Run:** `python scrapers/afltables_scraper.py --start_year 2024 --end_year 2024` (test first)
 
-- Scrapes per-season player stats from `afltables.com/afl/stats/{year}.html`
-- One row per player-game, all teams, full season
-- Target columns: player_name, team, kicks, marks, handballs, disposals, goals, behinds, hit_outs, tackles, rebounds, inside_50s, clearances, clangers, frees_for, frees_against, brownlow_votes, contested_possessions, uncontested_possessions, contested_marks, marks_inside_50, one_percenters, bounces, goal_assists, pct_game_played
-- **Run single year first** to verify column order before doing full 2012–2026
+| File | Rows | Notes |
+|---|---|---|
+| `data/raw/afltables_player_stats.csv` | 132,112 | Per-game stats, 2012–2026, all 18 teams |
+
+**Columns:** `player_name, team, year, round, opponent, disposals, kicks, marks, handballs, goals, behinds, hit_outs, tackles, rebounds, inside_50s, clearances, clangers, frees_for, frees_against, brownlow_votes, contested_possessions, uncontested_possessions, contested_marks, marks_inside_50, one_percenters, bounces, goal_assists, pct_game_played, subs`
+
+**How it works:**
+- Scrapes team Game-by-Game pages (`afltables.com/afl/stats/teams/{slug}/{year}_gbg.html`) — one page per team per year (270 requests total)
+- Each page has 23 stat tables in pivot format (player × round); melted to long format and joined
+- Opponent abbreviations extracted from `th` header elements
+- `-` cells converted to `0` (player played, recorded zero); blank cells = `None` (did not play)
+
+**Known notes:**
+- 2020 season has fewer rows (COVID-shortened season, 17 rounds)
+- 2026 has 3,312 rows (season in progress at time of scrape)
+- `subs` column = substitution status (On/Off/0); not a numeric stat
 
 ---
 
@@ -102,15 +113,22 @@ dim_date       ← full date spine 2012–2026; is_finals flag set from match da
 
 ---
 
-## SQL Queries — WRITTEN, NOT YET TESTED
+## SQL Queries — COMPLETE & TESTED
 
-| File | What it does |
-|---|---|
-| `sql/create_schema.sql` | DDL reference + PostgreSQL migration target |
-| `sql/player_rankings.sql` | Season averages ranked with RANK() window function |
-| `sql/team_form.sql` | Rolling last-5-game form string using LAG() |
-| `sql/venue_analysis.sql` | Home win rates + Melbourne venue scoring for ANOVA |
-| `sql/cohort_analysis.sql` | Player debut cohort career trajectory |
+| File | What it does | Rows returned |
+|---|---|---|
+| `sql/create_schema.sql` | DDL reference + PostgreSQL migration target | — |
+| `sql/player_rankings.sql` | Season averages ranked with RANK() window function | 100 (top 100) |
+| `sql/team_form.sql` | Rolling last-5-game form string using LAG() | 6,172 |
+| `sql/venue_analysis.sql` | Home win rates + Melbourne venue scoring for ANOVA | 19 venues + 1,482 game rows |
+| `sql/cohort_analysis.sql` | Player debut cohort career trajectory | 120 cohort-year rows |
+| `sql/home_away_splits.sql` | Home vs away win %, score, margin per team per season | 540 |
+| `sql/scoring_trends.sql` | League-wide scoring averages + range by season | 15 seasons |
+
+**Early findings from SQL:**
+- Adelaide Oval has highest home win rate (58.4%) — MCG only 51.0%, Marvel Stadium 46.7% (away team actually wins more often)
+- League average total score has declined: 183.7 (2012) → need to check recent years
+- 2012 cohort: 671 players, retention drops to 564 by year 2, 489 by year 3
 
 ---
 
@@ -170,3 +188,6 @@ jupyter notebook analysis/01_eda.ipynb
 | 2026-05-04 | Project initialised — folder structure, all scripts, mappings created |
 | 2026-05-04 | Squiggle API run successfully — 3,095 games, 18 teams, 15 seasons |
 | 2026-05-04 | Fixed config.py path resolution — paths now absolute from project root |
+| 2026-05-04 | AFL Tables scraper rewritten for GBG page structure — 132,112 rows (2012–2026) |
+| 2026-05-04 | ETL pipeline complete — star schema loaded into SQLite (132,112 + 3,095 rows) |
+| 2026-05-04 | Phase 3 SQL queries complete — 6 queries tested and validated against live DB |
