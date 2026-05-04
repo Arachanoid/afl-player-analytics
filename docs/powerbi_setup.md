@@ -82,18 +82,49 @@ Go to the **Model view** (icon on the left sidebar). Drag and drop to create eac
 
 ### How it looks in Model view
 
+Two independent stars sharing conformed dimension tables. Each fact sits in the centre of its own star — dims only ever appear on the outside edge, never linking to each other.
+
+**Star 1 — player_stats**
 ```
-dim_players  ──(1)────(*) player_stats (*) ────(1)── dim_teams (active: team)
-                                                         │
-dim_seasons  ──(1)────(*)                               (inactive: opponent)
-                                                         │
-dim_venues   ──(1)────(*) match_results (*) ────(1)── dim_teams (active: hteam)
-                                │                        │
-dim_date     ──(1)────(*)       │               (inactive: ateam, winner)
-                                │
-dim_seasons  ──(1)────(*) squiggle_standings
-dim_teams    ──(1)────(*)
+                        dim_players
+                             │ player_name (1)
+                             │
+            year (1)         ▼
+dim_seasons ────────────► player_stats ◄──────────── dim_teams
+                         (132,112 rows)              team [ACTIVE]
+                                                     opponent [INACTIVE]
 ```
+
+**Star 2 — match_results**
+```
+                           dim_date
+                               │ date (1)
+                               │
+             year (1)          ▼
+dim_seasons ──────────► match_results ◄──────────── dim_teams
+                          (3,095 rows)              hteam [ACTIVE]
+                               ▲                    ateam [INACTIVE]
+                               │ venue (1)          winner [INACTIVE]
+                           dim_venues
+```
+
+**Star 3 — squiggle_standings**
+```
+                         dim_teams
+                              │ name (1)
+                              │
+              year (1)        ▼
+dim_seasons ──────────► squiggle_standings
+                           (270 rows)
+```
+
+**Why dim_teams and dim_seasons appear in all three stars:**
+These are called **conformed dimensions** — the same lookup table used by multiple fact tables. This is correct and intentional. It means one `dim_teams` slicer in Power BI filters all three fact tables simultaneously.
+
+**What a star is NOT:**
+- Dims do not link to other dims
+- Fact tables do not link to each other directly
+- No dim sits between two facts
 
 ---
 
