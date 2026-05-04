@@ -14,13 +14,14 @@ career_stats AS (
     SELECT
         f.player_key,
         p.player_name,
+        d.debut_year,
         s.year,
+        s.year - d.debut_year                AS years_since_debut,
         COUNT(*)                             AS games,
         ROUND(AVG(f.disposals), 1)           AS avg_disposals,
         ROUND(AVG(f.goals), 2)               AS avg_goals,
         ROUND(AVG(f.brownlow_votes), 2)      AS avg_brownlow,
-        SUM(f.brownlow_votes)                AS total_brownlow,
-        s.year - d.debut_year                AS years_since_debut
+        SUM(f.brownlow_votes)                AS total_brownlow
     FROM fact_player_match_stats f
     JOIN dim_players  p ON f.player_key  = p.player_key
     JOIN dim_seasons  s ON f.season_key  = s.season_key
