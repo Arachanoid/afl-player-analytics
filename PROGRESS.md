@@ -132,6 +132,25 @@ dim_date       ← full date spine 2012–2026; is_finals flag set from match da
 
 ---
 
+## Power BI — READY TO BUILD
+
+**Approach:** Load directly from `data/cleaned/` CSVs — no separate export step needed.
+**Guide:** `docs/powerbi_setup.md` — full instructions: which files to load, relationships to build, all DAX measures, 4 report page layouts.
+
+Files to load into Power BI:
+- `data/cleaned/player_stats.csv` (fact — 132,112 rows)
+- `data/cleaned/match_results_squiggle.csv` (fact — 3,095 rows)
+- `data/cleaned/dim_teams.csv`, `dim_players.csv`, `dim_venues.csv`, `dim_seasons.csv`, `dim_date.csv`
+- `data/raw/squiggle_standings.csv` (ladder reference)
+
+Key relationships (natural string keys — no surrogate integers needed in Power BI):
+- `player_stats.team` → `dim_teams.team_name`
+- `player_stats.year` → `dim_seasons.year`
+- `match_results_squiggle.hteam` → `dim_teams.team_name`
+- `match_results_squiggle.venue` → `dim_venues.venue_name`
+
+---
+
 ## Analysis Notebooks — STARTER ONLY
 
 | File | Status | Purpose |
