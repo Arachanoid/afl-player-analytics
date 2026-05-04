@@ -9,7 +9,7 @@ import pandas as pd
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scrapers"))
-from config import CLEANED_DATA_DIR, DATABASE_PATH
+from config import CLEANED_DATA_DIR, DATABASE_PATH, RAW_DATA_DIR
 
 
 def load_table(conn: sqlite3.Connection, csv_path: str, table_name: str):
@@ -31,6 +31,7 @@ def build_fact_player_match_stats(conn: sqlite3.Connection):
     CREATE TABLE IF NOT EXISTS fact_player_match_stats AS
     SELECT
         ps.rowid          AS stat_key,
+        ps.match_id,
         dp.player_key,
         dt.team_key,
         ot.team_key       AS opponent_key,
@@ -165,9 +166,8 @@ def run():
     load_table(conn, f"{CLEANED_DATA_DIR}/match_results_afltables.csv", "match_results_afltables")
 
     print("\nLoading Squiggle reference tables...")
-    raw_dir = os.path.join(os.path.dirname(CLEANED_DATA_DIR), "data", "raw")
-    load_table(conn, os.path.join(raw_dir, "squiggle_standings.csv"), "squiggle_standings")
-    load_table(conn, os.path.join(raw_dir, "squiggle_teams.csv"),     "squiggle_teams")
+    load_table(conn, os.path.join(RAW_DATA_DIR, "squiggle_standings.csv"), "squiggle_standings")
+    load_table(conn, os.path.join(RAW_DATA_DIR, "squiggle_teams.csv"),     "squiggle_teams")
 
     print("\nBuilding fact tables...")
     build_fact_player_match_stats(conn)
