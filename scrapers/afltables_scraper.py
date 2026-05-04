@@ -1,14 +1,15 @@
 """
-AFL Tables scraper — scrapes per-season player stats and match results.
+AFL Tables scraper — per-game player stats via team Game-by-Game pages.
 
-Player stats URL:  https://afltables.com/afl/stats/{year}.html
-  - One row per player-game, all teams, full season.
-
-Match results URL: https://afltables.com/afl/seas/{year}.html
-  - Match-by-match scores with quarter breakdowns.
+Strategy:
+  1. Fetch the season stats index page to get each team's GBG link.
+  2. For each team's GBG page, parse 23 stat tables (pivot: player × round).
+  3. Melt each stat to long format, join all stats into one player-game DataFrame.
+  4. Append opponent abbreviation from the header row.
 """
 
 import os
+import re
 import time
 import argparse
 import requests
@@ -16,7 +17,6 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from config import (
     AFLTABLES_STATS_URL,
-    AFLTABLES_GAMES_URL,
     REQUEST_DELAY_SECONDS,
     REQUEST_TIMEOUT,
     RAW_DATA_DIR,
@@ -24,6 +24,7 @@ from config import (
     END_YEAR,
 )
 
+AFLTABLES_BASE = "https://afltables.com/afl/stats/"
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -32,141 +33,204 @@ HEADERS = {
     )
 }
 
+# Maps stat table title → clean column name
+STAT_MAP = {
+    "Disposals":               "disposals",
+    "Kicks":                   "kicks",
+    "Marks":                   "marks",
+    "Handballs":               "handballs",
+    "Goals":                   "goals",
+    "Behinds":                 "behinds",
+    "Hit Outs":                "hit_outs",
+    "Tackles":                 "tackles",
+    "Rebounds":                "rebounds",
+    "Inside 50s":              "inside_50s",
+    "Clearances":              "clearances",
+    "Clangers":                "clangers",
+    "Frees":                   "frees_for",
+    "Frees Against":           "frees_against",
+    "Brownlow Votes":          "brownlow_votes",
+    "Contested Possessions":   "contested_possessions",
+    "Uncontested Possessions": "uncontested_possessions",
+    "Contested Marks":         "contested_marks",
+    "Marks Inside 50":         "marks_inside_50",
+    "One Percenters":          "one_percenters",
+    "Bounces":                 "bounces",
+    "Goal Assists":            "goal_assists",
+    "% Played":                "pct_game_played",
+    "Subs":                    "subs",
+}
 
-def _fetch_html(url: str) -> BeautifulSoup:
+
+def _fetch(url: str) -> BeautifulSoup:
     resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
     return BeautifulSoup(resp.text, "lxml")
 
 
-def scrape_player_stats(year: int) -> pd.DataFrame:
-    """
-    Scrapes the season player stats table from afltables.com.
-    Returns a DataFrame with one row per player-game.
-    """
-    url = AFLTABLES_STATS_URL.format(year=year)
-    soup = _fetch_html(url)
+def get_team_gbg_links(year: int) -> dict[str, str]:
+    """Returns {team_name: full_gbg_url} for every team in the season."""
+    soup = _fetch(AFLTABLES_STATS_URL.format(year=year))
+    teams = {}
+    for t in soup.find_all("table"):
+        th = t.find("th")
+        if not th:
+            continue
+        link = th.find("a", href=lambda h: h and "gbg" in h)
+        if not link:
+            continue
+        team_name = th.get_text(strip=True).split("[")[0].strip()
+        gbg_url = AFLTABLES_BASE + link["href"]
+        teams[team_name] = gbg_url
+    return teams
 
-    # The stats page has a large table; first table with 'Player' header is what we want
+
+def parse_gbg_page(gbg_url: str, team_name: str, year: int) -> pd.DataFrame:
+    """
+    Parses one team's GBG page.
+    Returns a DataFrame with columns: player_name, team, year, round, opponent, <all stats>
+    """
+    soup = _fetch(gbg_url)
     tables = soup.find_all("table")
-    target = None
-    for t in tables:
-        headers = [th.get_text(strip=True) for th in t.find_all("th")]
-        if "Player" in headers and "Kicks" in headers:
-            target = t
-            break
-
-    if target is None:
-        print(f"  WARNING: could not find stats table for {year}")
+    if not tables:
         return pd.DataFrame()
 
-    rows = []
-    for tr in target.find_all("tr")[1:]:  # skip header row
-        cells = [td.get_text(strip=True) for td in tr.find_all("td")]
-        if cells:
-            rows.append(cells)
+    # Build round labels and opponent mapping from the first table's th elements.
+    # TH structure: [stat_name, 'Player', R2, R3, ..., Rn, 'Tot', <totals...>,
+    #                'Opponent', opp1, opp2, ..., oppN, '']
+    first_table = tables[0]
+    all_ths = [th.get_text(strip=True) for th in first_table.find_all("th")]
 
-    # Column names as they appear on the site
-    cols = [
-        "player_name", "team", "year", "games_played", "opponent", "round",
-        "result", "jersey_number", "kicks", "marks", "handballs", "disposals",
-        "goals", "behinds", "hit_outs", "tackles", "rebounds", "inside_50s",
-        "clearances", "clangers", "frees_for", "frees_against",
-        "brownlow_votes", "contested_possessions", "uncontested_possessions",
-        "contested_marks", "marks_inside_50", "one_percenters", "bounces",
-        "goal_assists", "pct_game_played",
-    ]
+    round_labels = []
+    opponents_raw = []
+    in_rounds = False
+    in_opponents = False
+    for label in all_ths:
+        if label == "Player":
+            in_rounds = True
+            continue
+        if in_rounds:
+            if label in ("Tot", "Totals", ""):
+                in_rounds = False
+            elif re.match(r"^R\d+$|^EF$|^QF$|^SF$|^PF$|^GF$", label):
+                round_labels.append(label)
+        if label == "Opponent":
+            in_opponents = True
+            continue
+        if in_opponents:
+            if label == "":
+                in_opponents = False
+            else:
+                opponents_raw.append(label)
 
-    df = pd.DataFrame(rows)
-    # Trim or pad columns to match expected count
-    if len(df.columns) >= len(cols):
-        df = df.iloc[:, : len(cols)]
-        df.columns = cols
-    else:
-        df.columns = cols[: len(df.columns)]
+    round_to_opp = {r: o for r, o in zip(round_labels, opponents_raw)}
 
-    df["year"] = year
-    print(f"  {year}: {len(df)} player-game rows")
-    return df
+    # Parse each stat table
+    stat_dfs = {}
+    for tbl in tables:
+        ths = tbl.find_all("th")
+        if not ths:
+            continue
+        stat_label = ths[0].get_text(strip=True)
+        col_name = STAT_MAP.get(stat_label)
+        if col_name is None:
+            continue
 
-
-def scrape_match_results(year: int) -> pd.DataFrame:
-    """
-    Scrapes match results (scores by quarter) from the season page.
-    Returns a DataFrame with one row per match.
-    """
-    url = AFLTABLES_GAMES_URL.format(year=year)
-    soup = _fetch_html(url)
-
-    matches = []
-    # Match blocks are wrapped in <a name="roundX"> then table rows
-    current_round = None
-    for tag in soup.find_all(["a", "table"]):
-        if tag.name == "a" and tag.get("name", "").startswith("r"):
-            current_round = tag.get("name")
-        if tag.name == "table":
-            rows = tag.find_all("tr")
-            if len(rows) < 2:
+        tbl_rows = tbl.find_all("tr")
+        player_data = {}
+        for row in tbl_rows:
+            cells = [td.get_text(strip=True) for td in row.find_all("td")]
+            if not cells or cells[0] in ("Opponent", "Totals", ""):
                 continue
-            cells_row1 = [td.get_text(strip=True) for td in rows[0].find_all("td")]
-            cells_row2 = [td.get_text(strip=True) for td in rows[1].find_all("td")]
-            # Expect: team, Q1.G.B, Q2.G.B, Q3.G.B, Q4.G.B, Total, Venue, Date, Attendance
-            if len(cells_row1) >= 6 and len(cells_row2) >= 6:
-                match = {
-                    "year": year,
-                    "round": current_round,
-                    "home_team": cells_row1[0] if cells_row1 else None,
-                    "away_team": cells_row2[0] if cells_row2 else None,
-                    "home_score": cells_row1[-1] if cells_row1 else None,
-                    "away_score": cells_row2[-1] if cells_row2 else None,
-                }
-                if len(cells_row1) > 6:
-                    match["venue"] = cells_row1[-3]
-                    match["date"] = cells_row1[-2]
-                matches.append(match)
+            player = cells[0]
+            values = cells[1:]
+            # values align with round_labels; remaining cells are totals — trim
+            game_values = values[: len(round_labels)]
+            player_data[player] = game_values
 
-    df = pd.DataFrame(matches)
-    print(f"  {year}: {len(df)} matches")
-    return df
+        if player_data:
+            stat_dfs[col_name] = player_data
+
+    if not stat_dfs:
+        return pd.DataFrame()
+
+    # Build long-format DataFrame: one row per player-round
+    records = []
+    all_players = list(next(iter(stat_dfs.values())).keys())
+    for player in all_players:
+        for i, round_label in enumerate(round_labels):
+            row = {
+                "player_name": player,
+                "team": team_name,
+                "year": year,
+                "round": round_label,
+                "opponent": round_to_opp.get(round_label, ""),
+            }
+            for col_name, player_data in stat_dfs.items():
+                val = player_data.get(player, [""] * len(round_labels))
+                raw = val[i] if i < len(val) else ""
+                # "-" means the player played but recorded zero for this stat
+                if raw == "-":
+                    row[col_name] = 0
+                elif raw == "" or raw is None:
+                    row[col_name] = None
+                else:
+                    try:
+                        row[col_name] = float(raw)
+                    except ValueError:
+                        row[col_name] = raw
+            # Skip rows where player has no stats at all (didn't play)
+            stat_cols = [c for c in row if c not in ("player_name", "team", "year", "round", "opponent")]
+            if all(row[c] is None for c in stat_cols):
+                continue
+            records.append(row)
+
+    return pd.DataFrame(records)
+
+
+def scrape_year(year: int) -> pd.DataFrame:
+    print(f"\n  Getting team links for {year}...")
+    teams = get_team_gbg_links(year)
+    print(f"  Found {len(teams)} teams")
+
+    all_frames = []
+    for team_name, gbg_url in teams.items():
+        print(f"    {team_name}...", end=" ", flush=True)
+        try:
+            df = parse_gbg_page(gbg_url, team_name, year)
+            print(f"{len(df)} rows")
+            if not df.empty:
+                all_frames.append(df)
+        except Exception as e:
+            print(f"ERROR: {e}")
+        time.sleep(REQUEST_DELAY_SECONDS)
+
+    if not all_frames:
+        return pd.DataFrame()
+
+    combined = pd.concat(all_frames, ignore_index=True)
+    print(f"  {year} total: {len(combined)} player-game rows")
+    return combined
 
 
 def run(start: int = START_YEAR, end: int = END_YEAR):
     os.makedirs(RAW_DATA_DIR, exist_ok=True)
 
-    all_stats = []
-    all_results = []
-
+    all_years = []
     for year in range(start, end + 1):
         print(f"\nScraping {year}...")
-        try:
-            stats = scrape_player_stats(year)
-            if not stats.empty:
-                all_stats.append(stats)
-        except Exception as e:
-            print(f"  ERROR scraping player stats {year}: {e}")
-
+        df = scrape_year(year)
+        if not df.empty:
+            all_years.append(df)
         time.sleep(REQUEST_DELAY_SECONDS)
 
-        try:
-            results = scrape_match_results(year)
-            if not results.empty:
-                all_results.append(results)
-        except Exception as e:
-            print(f"  ERROR scraping match results {year}: {e}")
-
-        time.sleep(REQUEST_DELAY_SECONDS)
-
-    if all_stats:
-        pd.concat(all_stats, ignore_index=True).to_csv(
-            f"{RAW_DATA_DIR}/afltables_player_stats.csv", index=False
-        )
-        print(f"\nPlayer stats saved ({sum(len(d) for d in all_stats)} total rows)")
-
-    if all_results:
-        pd.concat(all_results, ignore_index=True).to_csv(
-            f"{RAW_DATA_DIR}/afltables_match_results.csv", index=False
-        )
-        print(f"Match results saved ({sum(len(d) for d in all_results)} total rows)")
+    if all_years:
+        final = pd.concat(all_years, ignore_index=True)
+        out = os.path.join(RAW_DATA_DIR, "afltables_player_stats.csv")
+        final.to_csv(out, index=False)
+        print(f"\nSaved {len(final):,} total rows -> {out}")
+    else:
+        print("No data scraped.")
 
 
 if __name__ == "__main__":
