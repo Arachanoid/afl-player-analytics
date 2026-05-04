@@ -81,7 +81,7 @@ def run():
     for source, df in results:
         out = f"{CLEANED_DATA_DIR}/match_results_{source}.csv"
         df.to_csv(out, index=False)
-        print(f"  Saved {source} → {out} ({len(df)} rows)")
+        print(f"  Saved {source} -> {out} ({len(df)} rows)")
 
 
 if __name__ == "__main__":

@@ -102,9 +102,9 @@ def build_dim_players(player_df: pd.DataFrame) -> pd.DataFrame:
 def run():
     os.makedirs(CLEANED_DATA_DIR, exist_ok=True)
 
-    player_path = f"{CLEANED_DATA_DIR}/player_stats.csv"
-    match_path_afl = f"{CLEANED_DATA_DIR}/match_results_afltables.csv"
-    squiggle_teams_path = f"{CLEANED_DATA_DIR}/../data/raw/squiggle_teams.csv"
+    player_path    = f"{CLEANED_DATA_DIR}/player_stats.csv"
+    match_path_sq  = f"{CLEANED_DATA_DIR}/match_results_squiggle.csv"
+    squiggle_teams_path = os.path.join(os.path.dirname(CLEANED_DATA_DIR), "data", "raw", "squiggle_teams.csv")
 
     if not os.path.exists(player_path):
         print("ERROR: run clean_player_stats.py first")
@@ -112,7 +112,11 @@ def run():
 
     print("Loading cleaned data...")
     player_df = pd.read_csv(player_path, low_memory=False)
-    match_df = pd.read_csv(match_path_afl) if os.path.exists(match_path_afl) else pd.DataFrame()
+    # Use Squiggle match data for venue extraction; rename to a common 'venue' column
+    if os.path.exists(match_path_sq):
+        match_df = pd.read_csv(match_path_sq)
+    else:
+        match_df = pd.DataFrame()
 
     print("Building dim_players...")
     dim_players = build_dim_players(player_df)

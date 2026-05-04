@@ -22,7 +22,11 @@ def load_table(conn: sqlite3.Connection, csv_path: str, table_name: str):
 
 
 def build_fact_player_match_stats(conn: sqlite3.Connection):
-    """Joins player stats with dimension surrogate keys to build the fact table."""
+    """
+    Joins player stats with dimension surrogate keys to build the fact table.
+    Note: venue_key and date_key are NULL here — the GBG scraper gives round+opponent
+    but not date/venue. These can be enriched later by joining with fact_match_results.
+    """
     query = """
     CREATE TABLE IF NOT EXISTS fact_player_match_stats AS
     SELECT
@@ -30,11 +34,8 @@ def build_fact_player_match_stats(conn: sqlite3.Connection):
         dp.player_key,
         dt.team_key,
         ot.team_key       AS opponent_key,
-        dv.venue_key,
         ds.season_key,
-        dd.date_key,
         ps.round,
-        ps.result,
         ps.kicks,
         ps.marks,
         ps.handballs,
@@ -57,14 +58,13 @@ def build_fact_player_match_stats(conn: sqlite3.Connection):
         ps.one_percenters,
         ps.bounces,
         ps.goal_assists,
-        ps.pct_game_played
+        ps.pct_game_played,
+        ps.subs
     FROM player_stats ps
     LEFT JOIN dim_players dp ON ps.player_name = dp.player_name
-    LEFT JOIN dim_teams   dt ON ps.team     = dt.team_name
-    LEFT JOIN dim_teams   ot ON ps.opponent = ot.team_name
-    LEFT JOIN dim_seasons ds ON ps.year     = ds.year
-    LEFT JOIN dim_date    dd ON ps.date     = dd.full_date
-    LEFT JOIN dim_venues  dv ON ps.venue    = dv.venue_name
+    LEFT JOIN dim_teams   dt ON ps.team        = dt.team_name
+    LEFT JOIN dim_teams   ot ON ps.opponent    = ot.team_name
+    LEFT JOIN dim_seasons ds ON ps.year        = ds.year
     """
     conn.execute("DROP TABLE IF EXISTS fact_player_match_stats")
     conn.execute(query)
@@ -92,26 +92,33 @@ def build_fact_match_results(conn: sqlite3.Connection):
         query = """
         CREATE TABLE fact_match_results AS
         SELECT
-            mr.id            AS match_key,
+            mr.id               AS match_key,
             ds.season_key,
             dv.venue_key,
             dd.date_key,
-            ht.team_key      AS home_team_key,
-            at.team_key      AS away_team_key,
+            ht.team_key         AS home_team_key,
+            at.team_key         AS away_team_key,
             mr.round,
-            mr.hscore        AS home_total_score,
-            mr.ascore        AS away_total_score,
+            mr.roundname,
+            mr.hgoals           AS home_goals,
+            mr.hbehinds         AS home_behinds,
+            mr.hscore           AS home_total_score,
+            mr.agoals           AS away_goals,
+            mr.abehinds         AS away_behinds,
+            mr.ascore           AS away_total_score,
             CASE WHEN mr.hscore > mr.ascore THEN ht.team_key
                  WHEN mr.ascore > mr.hscore THEN at.team_key
-                 ELSE NULL END AS winning_team_key,
+                 ELSE NULL END  AS winning_team_key,
             ABS(COALESCE(mr.hscore,0) - COALESCE(mr.ascore,0)) AS margin,
-            mr.attendance
+            mr.is_final,
+            mr.is_grand_final,
+            NULL                AS attendance
         FROM match_results_squiggle mr
         LEFT JOIN dim_teams   ht ON mr.hteam   = ht.team_name
         LEFT JOIN dim_teams   at ON mr.ateam   = at.team_name
         LEFT JOIN dim_venues  dv ON mr.venue   = dv.venue_name
         LEFT JOIN dim_seasons ds ON mr.year    = ds.year
-        LEFT JOIN dim_date    dd ON mr.date    = dd.full_date
+        LEFT JOIN dim_date    dd ON DATE(mr.date) = dd.full_date
         """
     else:
         query = """
