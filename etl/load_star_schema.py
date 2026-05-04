@@ -164,6 +164,11 @@ def run():
     load_table(conn, f"{CLEANED_DATA_DIR}/match_results_squiggle.csv", "match_results_squiggle")
     load_table(conn, f"{CLEANED_DATA_DIR}/match_results_afltables.csv", "match_results_afltables")
 
+    print("\nLoading Squiggle reference tables...")
+    raw_dir = os.path.join(os.path.dirname(CLEANED_DATA_DIR), "data", "raw")
+    load_table(conn, os.path.join(raw_dir, "squiggle_standings.csv"), "squiggle_standings")
+    load_table(conn, os.path.join(raw_dir, "squiggle_teams.csv"),     "squiggle_teams")
+
     print("\nBuilding fact tables...")
     build_fact_player_match_stats(conn)
     build_fact_match_results(conn)
