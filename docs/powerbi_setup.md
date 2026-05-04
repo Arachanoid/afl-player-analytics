@@ -30,32 +30,70 @@ Home → Get Data → Text/CSV → load each file from `data/cleaned/`:
 
 ## Step 3 — Build the Star Schema (Model View)
 
-Go to the **Model view** (icon on the left sidebar). Drag and drop to create these relationships:
+Go to the **Model view** (icon on the left sidebar). Drag and drop to create each relationship, then double-click it to set the exact properties below.
 
-### player_stats (fact)
-| player_stats column | → | Dimension | column |
-|---|---|---|---|
-| `team` | → | `dim_teams` | `team_name` |
-| `year` | → | `dim_seasons` | `year` |
-| `player_name` | → | `dim_players` | `player_name` |
+### Relationship settings explained
+| Setting | What it means |
+|---|---|
+| **Cardinality: Many-to-one** | Many rows in the fact match one row in the dim — standard star schema |
+| **Cross-filter: Single** | Dim filters fact, but NOT the other way. Use this on all fact→dim links |
+| **Cross-filter: Both** | Filters flow in both directions — only use on dim→dim or reference tables |
+| **Active** | The default relationship used in all DAX calculations |
+| **Inactive** | Dormant — only activated when you explicitly call USERELATIONSHIP() in a measure |
 
-> Set `opponent → dim_teams.team_name` as an **inactive** relationship (Power BI only allows one active relationship per table pair). Use USERELATIONSHIP() in DAX when you need opponent context.
+---
 
-### match_results_squiggle (fact)
-| match_results column | → | Dimension | column |
-|---|---|---|---|
-| `hteam` | → | `dim_teams` | `team_name` |
-| `venue` | → | `dim_venues` | `venue_name` |
-| `year` | → | `dim_seasons` | `year` |
-| `date` (DATE() cast) | → | `dim_date` | `full_date` |
+### player_stats (fact table)
 
-> `ateam` and `winner` → `dim_teams.team_name` should be set as **inactive** relationships.
+| From | To | Cardinality | Cross-filter | Active? |
+|---|---|---|---|---|
+| `player_stats[team]` | `dim_teams[team_name]` | Many-to-one (\*→1) | Single | Yes |
+| `player_stats[year]` | `dim_seasons[year]` | Many-to-one (\*→1) | Single | Yes |
+| `player_stats[player_name]` | `dim_players[player_name]` | Many-to-one (\*→1) | Single | Yes |
+| `player_stats[opponent]` | `dim_teams[team_name]` | Many-to-one (\*→1) | Single | **No (Inactive)** |
 
-### squiggle_standings (reference)
-| squiggle_standings column | → | Dimension | column |
-|---|---|---|---|
-| `name` | → | `dim_teams` | `team_name` |
-| `year` | → | `dim_seasons` | `year` |
+> Power BI only allows **one active relationship between the same two tables**. Both `team` and `opponent` point to `dim_teams`, so `opponent` must be inactive. To use it in a measure: `CALCULATE([Total Disposals], USERELATIONSHIP(player_stats[opponent], dim_teams[team_name]))`
+
+---
+
+### match_results_squiggle (fact table)
+
+| From | To | Cardinality | Cross-filter | Active? |
+|---|---|---|---|---|
+| `match_results_squiggle[hteam]` | `dim_teams[team_name]` | Many-to-one (\*→1) | Single | Yes |
+| `match_results_squiggle[venue]` | `dim_venues[venue_name]` | Many-to-one (\*→1) | Single | Yes |
+| `match_results_squiggle[year]` | `dim_seasons[year]` | Many-to-one (\*→1) | Single | Yes |
+| `match_results_squiggle[date]` | `dim_date[full_date]` | Many-to-one (\*→1) | Single | Yes |
+| `match_results_squiggle[ateam]` | `dim_teams[team_name]` | Many-to-one (\*→1) | Single | **No (Inactive)** |
+| `match_results_squiggle[winner]` | `dim_teams[team_name]` | Many-to-one (\*→1) | Single | **No (Inactive)** |
+
+> Same reason as above — three columns (`hteam`, `ateam`, `winner`) all point to `dim_teams`, only one can be active. `hteam` is active as the primary team context.
+
+---
+
+### squiggle_standings (reference table)
+
+| From | To | Cardinality | Cross-filter | Active? |
+|---|---|---|---|---|
+| `squiggle_standings[name]` | `dim_teams[team_name]` | Many-to-one (\*→1) | Single | Yes |
+| `squiggle_standings[year]` | `dim_seasons[year]` | Many-to-one (\*→1) | Single | Yes |
+
+---
+
+### How it looks in Model view
+
+```
+dim_players  ──(1)────(*) player_stats (*) ────(1)── dim_teams (active: team)
+                                                         │
+dim_seasons  ──(1)────(*)                               (inactive: opponent)
+                                                         │
+dim_venues   ──(1)────(*) match_results (*) ────(1)── dim_teams (active: hteam)
+                                │                        │
+dim_date     ──(1)────(*)       │               (inactive: ateam, winner)
+                                │
+dim_seasons  ──(1)────(*) squiggle_standings
+dim_teams    ──(1)────(*)
+```
 
 ---
 
