@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Recurse \"d:\\\\data analyst\\\\AFL Player Performance & Match Analytics\" | Where-Object { -not $_.PSIsContainer } | Select-Object FullName)",
+      "PowerShell(python -c \"import os; p = r'd:\\\\data analyst\\\\AFL Player Performance & Match Analytics\\\\scrapers\\\\data\\\\raw'; print\\(os.path.exists\\(p\\)\\); print\\(os.listdir\\(p\\) if os.path.exists\\(p\\) else 'not found'\\)\")",
+      "PowerShell(python -c \"import os; p = r'd:\\\\data analyst\\\\AFL Player Performance & Match Analytics\\\\data\\\\raw'; print\\(os.listdir\\(p\\)\\)\")",
+      "PowerShell(gh --version)",
+      "PowerShell(python --version)",
+      "PowerShell(python -c \"import sys; print\\(sys.executable\\)\")",
+      "PowerShell(C:\\\\Users\\\\Huawei\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe -m pip install lxml beautifulsoup4 requests pandas tqdm)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Huawei\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--data-analyst-AFL-Player-Performance---Match-Analytics\\\\2b3a4292-009c-491e-91c0-dd7fe91e06db\\\\tasks\\\\b2ea812fm.output\" -Wait)"
+    ]
+  }
+}
